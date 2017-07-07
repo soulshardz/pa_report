@@ -16,11 +16,6 @@ class PerformanceReporter {
 
 	public function __construct( $groupFK )
 	{
-		if( !is_int( $groupFK ) )
-		{
-			throw new Exception( "The group FK should be an integer!" );			
-		}
-
 		if( 0 >= intval( $groupFK ) )
 		{
 			throw new Exception( "The group FK should be positive integer!" );			
@@ -33,13 +28,14 @@ class PerformanceReporter {
 		$this->_allowedFileModes = array( "w", "r" );
 
 		$this->_initQueries();
-
-		$this->_loadGroupData();
 	}
 
 	public function parse()
 	{
-		$result = false;
+		if( empty( $this->_groupData ) )
+		{
+			$this->_loadGroupData();
+		}
 
 		if( !isset( $this->_config[ "logDir" ] ) || !isset( $this->_config[ "logFileNamePattern" ] ) )
 		{
@@ -54,7 +50,7 @@ class PerformanceReporter {
 		$subscriptionFKs = array();
 		$this->_dailyData = array();
 
-		$dbResult = $this->db->query( $this->_q( 'getSubscriptionsFKs', array( 'groupFK' => $groupFK ) ) );
+		$dbResult = $this->_db->select( $this->_q( 'getSubscriptionFKs', array( 'groupFK' => $this->_groupFK ) ) );
 
 		if( !is_array( $dbResult ) || 0 >= count( $dbResult ) )
 		{
@@ -79,7 +75,6 @@ class PerformanceReporter {
 
 		$this->_setAggregate();
 
-		return $result;
 	}
 
 	public function setDb( $dbObject )
@@ -121,6 +116,11 @@ class PerformanceReporter {
 
 	public function report()
 	{
+		if( empty( $this->_groupData ) )
+		{
+			$this->_loadGroupData();
+		}
+
 		$this->_loadAggregate();
 
 		if( true === $this->_config[ "shouldSendEmail" ] )
@@ -133,6 +133,11 @@ class PerformanceReporter {
 		}
 	}
 
+	public function getall()
+	{
+		return $this;
+	}
+
 	protected function _initQueries()
 	{
 		$this->_queries[ "getClientData" ] 			= "SELECT * FROM groups WHERE id = {groupFK}";
@@ -141,7 +146,7 @@ class PerformanceReporter {
 
 	protected function _loadGroupData()
 	{
-		$dbResult = $this->_db->query( $this->_q( 'getClientData', array( "groupFK" => $this->_groupFK ) ) );
+		$dbResult = $this->_db->select( $this->_q( 'getClientData', array( "groupFK" => $this->_groupFK ) ) );
 		if( !is_array( $dbResult ) || 0 >= count( $dbResult ) )
 		{
 			throw new Exception( "Cannot find the requested group via ID [" . $this->_groupFK . "]!" );
@@ -176,8 +181,6 @@ class PerformanceReporter {
 
 	protected function _setAggregate()
 	{
-		$result = false;
-
 		if( 0 >= count( $this->_dailyData ) )
 		{
 			throw new Exception( "There is nothing to save to the aggregate file!" );
@@ -187,21 +190,23 @@ class PerformanceReporter {
 
 		if( !isset( $this->_aggregatedData[ $this->_groupFK ] ) )
 		{
-			$this->_aggregatedData[ $this->_groupFK ] = array( "total" => array() );
+			$this->_aggregatedData[ $this->_groupFK ] = array();
 		}
 
-		foreach ( $this->_dailyData as $dailyDataRow )
+		foreach ( $this->_dailyData as $url => $dailyDataRow )
 		{
-			if( !isset( $this->_aggregatedData[  ] )
-			{
-
-			}
-			
+			$this->_aggregatedData[ $this->_groupFK ][ $url ] = $dailyDataRow;
 		}
 
 		$fh = $this->_getAggregateFileHandle( "w" );
 
-		return $result;
+		if( !fwrite($fh, json_encode( $this->_aggregatedData ) ) )
+		{
+			fclose( $fh );
+			throw new Exception( "Cannot write out data to aggregate file!" );
+		}
+
+		fclose( $fh );
 	}
 
 	protected function _getAggregateFileHandle( $mode )
@@ -268,6 +273,7 @@ class PerformanceReporter {
 		$aggregatedData = $this->_aggregatedData;
 
 		require_once 'email_template.php';
+
 		$message = ob_get_clean();
 
 		$headers = "From: Cron Reporter <DONOTREPLY@enetpulse.com>\r\n";
@@ -297,6 +303,8 @@ class PerformanceReporter {
 			throw new Exception( "Not existing query requested [" . $queryName . "]" );
 			
 		}
+
+		$query = $this->_queries[ $queryName ];
 
 		if( 0 < count( $replacementArray ) )
 		{

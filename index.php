@@ -1,4 +1,9 @@
 <?php
+	define( 'ENVIRONMENT', 'dev' );
+	
+	require_once 'log_parser.php';
+	require_once 'db.php';
+
 	$allowedCommands = array( "full" => "aggregate", "parse"=>"parse", "report" => "report" );
 
 	if( !in_array( count( $argv ), array(3,4) ) )
@@ -8,14 +13,14 @@
 
 	try
 	{
-		$groupFK = $argv[1];
-		if( !in_array( $command , array_keys( $allowedCommands ) ) )
+		if( !in_array( $argv[1] , array_keys( $allowedCommands ) ) )
 		{
-			throw new Exception( "Not allowed command passed: [" . $argv[2] . "]!" );
+			throw new Exception( "Not allowed command passed: [" . $argv[1] . "]!" );
 		}
-		
-		$command = $argv[2];
+		$command = $argv[1];
 
+		$groupFK = $argv[2];
+		
 		$configurationFile = 'default';
 
 		if( 4 == count( $argv ) )
@@ -34,17 +39,28 @@
 		}
 
 		require_once $configurationFileName;
-		require_once 'log_parser.php';
+		
+		$dbCfgArr = array(
+			'host' => file_get_contents( "/home/ubuntu/.spocosydb" ),
+			'username' => 'spocosy_dev',
+			'password' => 'spocosy_dev',
+			'database' => 'SpoCoSy',
+			'tablePrefix'   => ''
+		);
+
+		$db = DB::create( 'spocosydb', $dbCfgArr );
+		$db->open();
 
 		$reporter = new PerformanceReporter( $groupFK );
 		$reporter->setDb( $db );
 		$reporter->setConfig( $config );
 
+		// var_dump( $reporter->getall() );
 		$reporter->{$allowedCommands[ $command ]}();
 	}
 	catch( Exception $e )
 	{
-		echo "Error occurred: " . $e->getMessage() . '\n\nExecution terminated!';
+		echo "Error occurred: " . $e->getMessage() . "\n\nExecution terminated!\n\n";
 	}
 	
 	function showUsage()
