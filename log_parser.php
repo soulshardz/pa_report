@@ -148,6 +148,8 @@ class PerformanceReporter {
 
 		$this->_loadAggregate();
 
+		$this->_buildReport();
+
 		if( true === $this->_config[ "shouldSendEmail" ] )
 		{
 			$this->_sendEmail();
@@ -283,6 +285,31 @@ class PerformanceReporter {
 		return $aggregateFileHandle;
 	}
 
+	protected function _buildReport()
+	{
+		if( !isset( $this->_config[ "reportSince" ] ) )
+		{
+			throw new Exception( "Reporting start date is absent from the configuration!" );
+		}
+
+		$nextDay = date( "Y-m-d", strtotime( $this->_config[ "reportSince" ] ) );
+
+		$shouldSeekNextDay = true;
+		$yesterday = date( "Y-m-d", strtotime( "yesterday" ) );
+
+		while( $shouldSeekNextDay )
+		{
+			// if already reached yesterday - stop gathering data after current loop.
+			if( $nextDay === $yesterday )
+			{
+				$shouldSeekNextDay = false;
+			}
+
+			// increment next day
+			$nextDay = date( "Y-m-d", strtotime( $nextDay . " +1 day" ) );
+		}
+	}
+
 	protected function _sendEmail( $aggregatedData )
 	{
 		if( !isset( $this->_config[ "mailRecipients" ] ) || 0 >= count( $this->_config[ "mailRecipients" ] ) )
@@ -294,7 +321,7 @@ class PerformanceReporter {
 		ob_start();
 
 		$clientName = $this->_groupData[ "name" ];
-		$period = $this->_config[ "period" ];
+		$reportSince = $this->_config[ "reportSince" ];
 		$aggregatedData = $this->_aggregatedData;
 
 		require_once 'email_template.php';
