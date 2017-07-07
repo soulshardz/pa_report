@@ -65,12 +65,37 @@ class PerformanceReporter {
 
 			$success = array();
 			$fail = array();
+			$successCount = 0;
+			$failCount = 0;
 
-			exec( 'grep "Push success" ' . $logFileName . ' | cut -f2 | sort | uniq -c', $success );
-			exec( 'grep "Push failed" ' . $logFileName . ' | cut -f2 | sort | uniq -c', $fail );
+			exec( 'grep "Push success" ' . $logFileName . ' 2>/dev/null | cut -f2 | sort | uniq -c', $success );
+			exec( 'grep "Push failed" ' . $logFileName . ' 2>/dev/null | cut -f2 | sort | uniq -c', $fail );
 
-			$this->_dailyData[ $row[ "value" ] ][ "success" ]	= $success;
-			$this->_dailyData[ $row[ "value" ] ][ "failed" ]		= $fail;
+			if( isset( $success[0] ) )
+			{
+				$stringParts = explode( " ", trim( $success[0] ) );
+				$successCount = intval( array_shift( $stringParts ) );
+			}
+
+			if( isset( $fail[0] ) )
+			{
+				$stringParts = explode( " ", trim( $fail[0] ) );
+				$failCount = intval( array_shift( $stringParts ) );
+			}
+
+			if( !isset( $this->_dailyData[ $row[ "value" ] ][ "success" ] ) )
+			{
+				$this->_dailyData[ $row[ "value" ] ][ "success" ] = 0;
+			}
+
+			$this->_dailyData[ $row[ "value" ] ][ "success" ]	+= $successCount;
+
+			if( !isset( $this->_dailyData[ $row[ "value" ] ][ "failed" ] ) )
+			{
+				$this->_dailyData[ $row[ "value" ] ][ "failed" ] = 0;
+			}			
+
+			$this->_dailyData[ $row[ "value" ] ][ "failed" ]	+= $failCount;
 		}
 
 		$this->_setAggregate();
@@ -168,7 +193,7 @@ class PerformanceReporter {
 
 		fclose( $fh );
 
-		$parsedData = json_decode( $aggregateData );
+		$parsedData = json_decode( $aggregateData, true );
 
 		if( !is_array( $parsedData ) )
 		{
@@ -195,7 +220,7 @@ class PerformanceReporter {
 
 		foreach ( $this->_dailyData as $url => $dailyDataRow )
 		{
-			$this->_aggregatedData[ $this->_groupFK ][ $url ] = $dailyDataRow;
+			$this->_aggregatedData[ $this->_groupFK ][ $url ][ $this->_config[ "logDate" ] ] = $dailyDataRow;
 		}
 
 		$fh = $this->_getAggregateFileHandle( "w" );
