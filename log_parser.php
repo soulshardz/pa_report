@@ -16,6 +16,7 @@ class PerformanceReporter {
 
 	protected $_groupFK;
 	protected $_allowedFileModes;
+	protected $_debug;
 
 	public function __construct( $groupFK )
 	{
@@ -32,12 +33,15 @@ class PerformanceReporter {
 		$this->_month = date('m');
 		$this->_year = date('Y');
 		$this->_report = array();
+		$this->_debug = false;
 
 		$this->_initQueries();
 	}
 
 	public function parse()
 	{
+		if( $this->_debug ) echo PHP_EOL . " parse start" . PHP_EOL;
+
 		if( empty( $this->_groupData ) )
 		{
 			$this->_loadGroupData();
@@ -105,7 +109,7 @@ class PerformanceReporter {
 		}
 
 		$this->_saveAggregate();
-
+		if( $this->_debug ) echo PHP_EOL . " parse end" . PHP_EOL;
 	}
 
 	public function setDb( $dbObject )
@@ -116,6 +120,16 @@ class PerformanceReporter {
 		}
 
 		$this->_db = $dbObject;
+	}
+
+	public function setDebug( $flag )
+	{
+		if( !is_bool( $flag ) )
+		{
+			throw new Exception( "Invalid parameter passed for debug switch. [" . gettype( $flag ) . "] passed, should be boolean!" );
+		}
+
+		$this->_debug = $flag;
 	}
 
 	public function setConfig( $configArray )
@@ -174,6 +188,7 @@ class PerformanceReporter {
 
 	public function report()
 	{
+		if( $this->_debug ) echo PHP_EOL . " reporting start" . PHP_EOL;
 		if( empty( $this->_groupData ) )
 		{
 			$this->_loadGroupData();
@@ -194,6 +209,7 @@ class PerformanceReporter {
 				fputcsv(STDOUT, $ar );
 			}
 		}
+		if( $this->_debug ) echo PHP_EOL . " reporting end" . PHP_EOL;
 	}
 
 	public function getall()
@@ -227,7 +243,16 @@ class PerformanceReporter {
 	{
 		$fh = $this->_getAggregateFileHandle( "r" );
 
-		$aggregateData = fread( $fh, filesize( $this->_config[ "actualAggregateFileName" ] ) );
+		$fileSize = filesize( $this->_config[ "actualAggregateFileName" ] );
+
+		if( 0 < $fileSize )
+		{
+			$aggregateData = fread( $fh, $fileSize );
+		}
+		else
+		{
+			$aggregateData = "{}";
+		}
 
 		fclose( $fh );
 
@@ -249,27 +274,31 @@ class PerformanceReporter {
 			throw new Exception( "There is nothing to save to the aggregate file!" );
 		}
 
-		$this->_loadAggregate();
-
-		if( !isset( $this->_aggregatedData[ $this->_groupFK ] ) )
+		if( date( "Y-m", strtotime( $this->_config[ "logDate" ] ) ) === $this->_year . "-" . $this->_month )
 		{
-			$this->_aggregatedData[ $this->_groupFK ] = array();
-		}
+			$this->_loadAggregate();
 
-		foreach ( $this->_dailyData as $url => $dailyDataRow )
-		{
-			$this->_aggregatedData[ $this->_groupFK ][ $url ][ $this->_config[ "logDate" ] ] = $dailyDataRow;
-		}
+			if( !isset( $this->_aggregatedData[ $this->_groupFK ] ) )
+			{
+				$this->_aggregatedData[ $this->_groupFK ] = array();
+			}
 
-		$fh = $this->_getAggregateFileHandle( "w" );
+			foreach ( $this->_dailyData as $url => $dailyDataRow )
+			{
+				$this->_aggregatedData[ $this->_groupFK ][ $url ][ $this->_config[ "logDate" ] ] = $dailyDataRow;
+			}
 
-		if( !fwrite($fh, json_encode( $this->_aggregatedData ) ) )
-		{
+			$fh = $this->_getAggregateFileHandle( "w" );
+
+			if( !fwrite($fh, json_encode( $this->_aggregatedData ) ) )
+			{
+				fclose( $fh );
+				throw new Exception( "Cannot write out data to aggregate file!" );
+			}
+
 			fclose( $fh );
-			throw new Exception( "Cannot write out data to aggregate file!" );
 		}
 
-		fclose( $fh );
 	}
 
 	protected function _getAggregateFileHandle( $mode )
@@ -332,7 +361,6 @@ class PerformanceReporter {
 
 		$nextDay = date( "Y-m-d", strtotime( $reportForMonth ) );
 
-
 		$shouldSeekNextDay = true;
 
 		// if the requested month is current month - last day to report should be yesterday
@@ -360,23 +388,26 @@ class PerformanceReporter {
 				$shouldSeekNextDay = false;
 			}
 
-			foreach ( $this->_aggregatedData[ $this->_groupFK ] as $url => $urlDailyData )
+			if( isset( $this->_aggregatedData[ $this->_groupFK ] ) )
 			{
-				if( isset( $urlDailyData[ $nextDay ] ) )
+				foreach ( $this->_aggregatedData[ $this->_groupFK ] as $url => $urlDailyData )
 				{
-					if( !isset( $this->_reportResults[ $url ][ "success" ] ) )
+					if( isset( $urlDailyData[ $nextDay ] ) )
 					{
-						$this->_reportResults[ $url ][ "success" ] = 0;
+						if( !isset( $this->_reportResults[ $url ][ "success" ] ) )
+						{
+							$this->_reportResults[ $url ][ "success" ] = 0;
+						}
+
+						$this->_reportResults[ $url ][ "success" ] += $urlDailyData[ $nextDay ][ "success" ];
+
+						if( !isset( $this->_reportResults[ $url ][ "fail" ] ) )
+						{
+							$this->_reportResults[ $url ][ "fail" ] = 0;
+						}
+
+						$this->_reportResults[ $url ][ "fail" ] += $urlDailyData[ $nextDay ][ "fail" ];
 					}
-
-					$this->_reportResults[ $url ][ "success" ] += $urlDailyData[ $nextDay ][ "success" ];
-
-					if( !isset( $this->_reportResults[ $url ][ "fail" ] ) )
-					{
-						$this->_reportResults[ $url ][ "fail" ] = 0;
-					}
-
-					$this->_reportResults[ $url ][ "fail" ] += $urlDailyData[ $nextDay ][ "fail" ];
 				}
 			}
 

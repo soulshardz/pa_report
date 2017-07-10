@@ -75,6 +75,7 @@
 		$db->open();
 
 		$reporter = new PerformanceReporter( $groupFK );
+		$reporter->setDebug( true );
 		$reporter->setDb( $db );
 		$reporter->setConfig( $config );		
 		$reporter->setMonth( $month, $year );
@@ -90,7 +91,7 @@
 	function showUsage()
 	{
 		global $allowedCommands;
-		echo "\nScript usage:\n\n\tLEGEND:\n\n\t\tcommand -> What action to perform: one of [" . implode("|", array_keys( $allowedCommands ) ) . "]\n\n\t\tgroupFK -> Integer value for group/client\n\t\tconfiguration file -> Filename without the extension to use for configuration. Defaults to 'default', looking for a file called 'default.conf' in the working directory.\n\n\tphp ./index.php groupFK (configurationFile)\n\n";
+		echo "\nScript usage:\n\n\tLEGEND:\n\n\t\tcommand -> What action to perform: one of [" . implode("|", array_keys( $allowedCommands ) ) . "]\n\n\t\tgroupFK -> Integer value for group/client\n\t\tconfiguration file -> Filename without the extension to use for configuration. Defaults to 'default', looking for a file called 'default.conf' in the working directory.\n\t\tyear-month -> Parseable string representing month and year for which to report (recommended format YYYY-MM).\n\n\tphp ./index.php command groupFK (configurationFile) (year-month)\n\n";
 		exit();
 	}
 
