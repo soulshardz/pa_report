@@ -10,6 +10,9 @@ class PerformanceReporter {
 	protected $_dailyData;
 	protected $_groupData;
 	protected $_aggregatedData;
+	protected $_month;
+	protected $_year;
+	protected $_report;
 
 	protected $_groupFK;
 	protected $_allowedFileModes;
@@ -26,6 +29,9 @@ class PerformanceReporter {
 		$this->_aggregatedData = array();
 		$this->_dailyData = array();
 		$this->_allowedFileModes = array( "w", "r" );
+		$this->_month = date('m');
+		$this->_year = date('Y');
+		$this->_report = array();
 
 		$this->_initQueries();
 	}
@@ -90,15 +96,15 @@ class PerformanceReporter {
 
 			$this->_dailyData[ $row[ "value" ] ][ "success" ]	+= $successCount;
 
-			if( !isset( $this->_dailyData[ $row[ "value" ] ][ "failed" ] ) )
+			if( !isset( $this->_dailyData[ $row[ "value" ] ][ "fail" ] ) )
 			{
-				$this->_dailyData[ $row[ "value" ] ][ "failed" ] = 0;
+				$this->_dailyData[ $row[ "value" ] ][ "fail" ] = 0;
 			}			
 
-			$this->_dailyData[ $row[ "value" ] ][ "failed" ]	+= $failCount;
+			$this->_dailyData[ $row[ "value" ] ][ "fail" ]	+= $failCount;
 		}
 
-		$this->_setAggregate();
+		$this->_saveAggregate();
 
 	}
 
@@ -126,11 +132,38 @@ class PerformanceReporter {
 
 		$this->_config = $configArray;
 
-		// validate the log date
+		// validate/parse the log date
 		if( isset( $this->_config[ "logDate" ] ) )
 		{
 			$this->_config[ "logDate" ] = date( 'Y-m-d', strtotime( $this->_config[ "logDate" ] ) );
 		}
+	}
+
+	public function setMonth( $month, $year = null )
+	{
+
+		if( is_null( $year ) )
+		{
+			$year = date('Y');
+		}
+
+		if( preg_match( '/^[0-9]{2}$/', $month ) )
+		{
+			$parsedDate = date( "Y-m-d", strtotime( $year . "-" . $month ) );
+		}
+		else
+		{
+			$parsedDate = date( "Y-m-d", strtotime( $year . " " . $month ) );
+		}
+
+		// if the combined product of the month and year parameters is invalid - stop execution.
+		if( "1970-01-01" === $parsedDate )
+		{
+			throw new Exception( "Parameters for month and year should be valid, parseable string representation!" );
+		}
+
+		$this->_year = date( "Y", strtotime( $parsedDate ));
+		$this->_month = date( "m", strtotime( $parsedDate ));
 	}
 
 	public function aggregate()
@@ -146,8 +179,6 @@ class PerformanceReporter {
 			$this->_loadGroupData();
 		}
 
-		$this->_loadAggregate();
-
 		$this->_buildReport();
 
 		if( true === $this->_config[ "shouldSendEmail" ] )
@@ -156,7 +187,12 @@ class PerformanceReporter {
 		}
 		else
 		{
-			fputcsv(STDOUT, $this->_aggregatedData );
+			foreach ($this->_reportResults as $url => $data )
+			{
+				// flatten the values for each url
+				$ar = array_merge( array( "url" => $url  ), $data );
+				fputcsv(STDOUT, $ar );
+			}
 		}
 	}
 
@@ -191,7 +227,7 @@ class PerformanceReporter {
 	{
 		$fh = $this->_getAggregateFileHandle( "r" );
 
-		$aggregateData = fread( $fh, filesize( $this->_config[ "aggregateFileName" ] ) );
+		$aggregateData = fread( $fh, filesize( $this->_config[ "actualAggregateFileName" ] ) );
 
 		fclose( $fh );
 
@@ -199,14 +235,14 @@ class PerformanceReporter {
 
 		if( !is_array( $parsedData ) )
 		{
-			throw new Exception( "Corrupt aggregated data after reading [" . $this->_config[ "aggregateFileName" ] . "]!" );
+			$parsedData = array();
 		}
 		
 		$this->_aggregatedData = $parsedData;
 		
 	}
 
-	protected function _setAggregate()
+	protected function _saveAggregate()
 	{
 		if( 0 >= count( $this->_dailyData ) )
 		{
@@ -248,22 +284,27 @@ class PerformanceReporter {
 			throw new Exception( "Not allowed file mode[" . $mode . "] requested!" );
 		}
 
-		if( !isset( $this->_config[ "aggregateFileName" ] ) )
+		if( !isset( $this->_config[ "aggregateFileNamePattern" ] ) )
 		{
 			throw new Exception( "Aggregate file name absent from configuration!" );
 		}
 
-		if( !is_file( $this->_config[ "aggregateFileName" ] ) )
+		$this->_config[ "actualAggregateFileName" ] = str_replace( array( "{month}", "{year}" ), array( $this->_month, $this->_year ), $this->_config[ "aggregateFileNamePattern" ] );
+
+		if( !is_file( $this->_config[ "actualAggregateFileName" ] ) )
 		{
-			throw new Exception( "Aggregate file cannot be found or is not readable by the script process!" );
+			if( !touch( $this->_config[ "actualAggregateFileName" ] ) )
+			{
+				throw new Exception( "Aggregate file cannot be found or is not readable by the script process!" );
+			}
 		}
 
-		if( !is_writable( $this->_config[ "aggregateFileName" ] ) )
+		if( !is_writable( $this->_config[ "actualAggregateFileName" ] ) )
 		{
 			throw new Exception( "Aggregate file is not writeable by the script process!" );
 		}
 
-		$aggregateFileHandle = @fopen( $this->_config[ "aggregateFileName" ], $mode );
+		$aggregateFileHandle = @fopen( $this->_config[ "actualAggregateFileName" ], $mode );
 
 		if( false === $aggregateFileHandle )
 		{
@@ -287,22 +328,56 @@ class PerformanceReporter {
 
 	protected function _buildReport()
 	{
-		if( !isset( $this->_config[ "reportSince" ] ) )
-		{
-			throw new Exception( "Reporting start date is absent from the configuration!" );
-		}
+		$reportForMonth = $this->_year . "-" . $this->_month;
 
-		$nextDay = date( "Y-m-d", strtotime( $this->_config[ "reportSince" ] ) );
+		$nextDay = date( "Y-m-d", strtotime( $reportForMonth ) );
+
 
 		$shouldSeekNextDay = true;
-		$yesterday = date( "Y-m-d", strtotime( "yesterday" ) );
+
+		// if the requested month is current month - last day to report should be yesterday
+		if( $this->_month === date( "m" ) )
+		{
+			$lastDay = date( "Y-m-d", strtotime( "yesterday" ) );
+		}
+		else // if it is different - find the last day of month
+		{
+			$lastDay = date( "Y-m-d", strtotime( date( "Y-m-01", strtotime( $this->_year . '-' . $this->_month . " +1 month" ) ) . " -1 day" ) );
+		}
+
+		$this->_report[ 'firstDay' ] = $nextDay;
+		$this->_report[ 'lastDay' ] = $lastDay;
+
+		$this->_loadAggregate();
+
+		$this->_reportResults = array();
 
 		while( $shouldSeekNextDay )
 		{
-			// if already reached yesterday - stop gathering data after current loop.
-			if( $nextDay === $yesterday )
+			// if already reached lastDay - stop gathering data after current loop.
+			if( $nextDay === $lastDay )
 			{
 				$shouldSeekNextDay = false;
+			}
+
+			foreach ( $this->_aggregatedData[ $this->_groupFK ] as $url => $urlDailyData )
+			{
+				if( isset( $urlDailyData[ $nextDay ] ) )
+				{
+					if( !isset( $this->_reportResults[ $url ][ "success" ] ) )
+					{
+						$this->_reportResults[ $url ][ "success" ] = 0;
+					}
+
+					$this->_reportResults[ $url ][ "success" ] += $urlDailyData[ $nextDay ][ "success" ];
+
+					if( !isset( $this->_reportResults[ $url ][ "fail" ] ) )
+					{
+						$this->_reportResults[ $url ][ "fail" ] = 0;
+					}
+
+					$this->_reportResults[ $url ][ "fail" ] += $urlDailyData[ $nextDay ][ "fail" ];
+				}
 			}
 
 			// increment next day
@@ -310,7 +385,7 @@ class PerformanceReporter {
 		}
 	}
 
-	protected function _sendEmail( $aggregatedData )
+	protected function _sendEmail()
 	{
 		if( !isset( $this->_config[ "mailRecipients" ] ) || 0 >= count( $this->_config[ "mailRecipients" ] ) )
 		{
@@ -321,8 +396,9 @@ class PerformanceReporter {
 		ob_start();
 
 		$clientName = $this->_groupData[ "name" ];
-		$reportSince = $this->_config[ "reportSince" ];
-		$aggregatedData = $this->_aggregatedData;
+		$from = $this->_report[ "firstDay" ];
+		$to = $this->_report[ "lastDay" ];
+		$aggregatedData = $this->_reportResults;
 
 		require_once 'email_template.php';
 

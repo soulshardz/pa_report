@@ -6,16 +6,16 @@
 </head>
 <body>
 	<h1>
-		<?php echo $clientName; ?> <?php echo $period; ?> push report
+		<?php echo $clientName; ?> push report
 	</h1>
 
 	<h4>
-		Results from <strong><?php echo $fromDate; ?></strong> to <strong><?php echo $toDate; ?></strong>
+		Results from <strong><?php echo $from; ?></strong> to <strong><?php echo $to; ?></strong>
 	</h4>
 
 	<hr/>
 
-	<table>
+	<table style="border: 1px solid #000; font-family: Verdana; text-align: right;">
 		<thead>
 			<tr>
 				<th>URL</th>
@@ -25,13 +25,16 @@
 			</tr>
 		</thead>
 		<tbody>
-			<?php foreach( $aggregatedData as $data ):?>
-			<tr>
-				<td><?php echo $data[ "url" ]; ?></td>
-				<td><?php echo $data[ "ok" ]; ?></td>
-				<td><?php echo $data[ "failed" ]; ?></td>
+			<?php $cnt=0; ?>
+			<?php foreach( $aggregatedData as $url => $data ):?>
+			<?php $trStyle = (( $cnt%2 ) ? "" : "background-color: #ddd;" ); ?>
+			<tr style="border: 1px solid #000;<?php echo $trStyle; ?>">
+				<td><?php echo $url; ?></td>
+				<td><?php echo $data[ "success" ]; ?></td>
+				<td><?php echo $data[ "fail" ]; ?></td>
 				<td>&nbsp;</td>
 			</tr>
+			<?php $cnt++; ?>
 			<?php endforeach;?>
 		</tbody>
 	</table>

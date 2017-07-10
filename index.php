@@ -6,7 +6,7 @@
 
 	$allowedCommands = array( "full" => "aggregate", "parse"=>"parse", "report" => "report" );
 
-	if( !in_array( count( $argv ), array(3,4) ) )
+	if( !in_array( count( $argv ), array(3,4,5) ) )
 	{
 		showUsage();
 	}
@@ -28,6 +28,29 @@
 			if( is_string( $argv[3] ) && "" != $argv[3] )
 			{
 				$configurationFile = $argv[3];
+			}
+		}
+
+		$year = null;
+		$month = date( "m" );
+
+		if( 5 == count( $argv ) )
+		{
+			if( is_string( $argv[4] ) && "" != $argv[4] )
+			{
+				$monthYear = $argv[4];
+
+				$dateParts = explode(" ", $monthYear );
+
+				if( 1 === count( $dateParts ) )
+				{
+					array_push( $dateParts, null );
+				}
+
+				if( 2 === count( $dateParts ) )
+				{
+					list( $year, $month ) = $dateParts;
+				}
 			}
 		}
 
@@ -53,7 +76,8 @@
 
 		$reporter = new PerformanceReporter( $groupFK );
 		$reporter->setDb( $db );
-		$reporter->setConfig( $config );
+		$reporter->setConfig( $config );		
+		$reporter->setMonth( $month, $year );
 
 		// var_dump( $reporter->getall() );
 		$reporter->{$allowedCommands[ $command ]}();
