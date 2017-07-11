@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 	<meta charset="UTF-8">
-	<title>Document</title>
+	<title>Push report</title>
 </head>
 <body>
 	<h1>
@@ -21,7 +21,6 @@
 				<th>URL</th>
 				<th>OK Count</th>
 				<th>Failed Count</th>
-				<th>#</th>
 			</tr>
 		</thead>
 		<tbody>
@@ -32,7 +31,6 @@
 				<td><?php echo $url; ?></td>
 				<td><?php echo $data[ "success" ]; ?></td>
 				<td><?php echo $data[ "fail" ]; ?></td>
-				<td>&nbsp;</td>
 			</tr>
 			<?php $cnt++; ?>
 			<?php endforeach;?>

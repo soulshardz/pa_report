@@ -40,8 +40,6 @@ class PerformanceReporter {
 
 	public function parse()
 	{
-		if( $this->_debug ) echo PHP_EOL . " parse start" . PHP_EOL;
-
 		if( empty( $this->_groupData ) )
 		{
 			$this->_loadGroupData();
@@ -52,10 +50,15 @@ class PerformanceReporter {
 			throw new Exception( "Log directory or name pattern absent from configuration!" );
 		}
 
-		if( !isset( $this->_config[ "logDate" ] ) )
+		if( !isset( $this->_config[ "logDateFrom" ] ) )
 		{
-			throw new Exception( "Log date absent from configuration!" );
+			throw new Exception( "Log date start absent from configuration!" );
 		}
+
+		if( !isset( $this->_config[ "logDateTo" ] ) )
+		{
+			throw new Exception( "Log date end absent from configuration!" );
+		}		
 
 		$subscriptionFKs = array();
 		$this->_dailyData = array();
@@ -67,49 +70,63 @@ class PerformanceReporter {
 			throw new Exception("No subscriptions found for the client!" );
 		}
 
-		foreach( $dbResult as $row )
+		$nextDay = $this->_config[ 'logDateFrom' ];
+
+		while ( strtotime( $this->_config[ 'logDateTo' ] ) >= strtotime( $nextDay ) )
 		{
-			// map subscription id to its URL
-			$subscriptionFKs[ $row[ "id" ] ] = $row[ "value" ];
-			$logFileName = str_replace( "{subscriptionFK}", $row[ "id" ], $this->_config[ "logDir" ] . '/' . $this->_config[ "logDate" ] . '/' . $this->_config[ "logFileNamePattern" ] );
+			if( $this->_debug ) echo PHP_EOL . "Parsing date [" . $nextDay . "] START" . PHP_EOL;
 
-			$success = array();
-			$fail = array();
-			$successCount = 0;
-			$failCount = 0;
-
-			exec( 'grep "Push success" ' . $logFileName . ' 2>/dev/null | cut -f2 | sort | uniq -c', $success );
-			exec( 'grep "Push failed" ' . $logFileName . ' 2>/dev/null | cut -f2 | sort | uniq -c', $fail );
-
-			if( isset( $success[0] ) )
+			foreach( $dbResult as $row )
 			{
-				$stringParts = explode( " ", trim( $success[0] ) );
-				$successCount = intval( array_shift( $stringParts ) );
+				if( $this->_debug ) echo PHP_EOL . "\tParsing subscription [" . $row[ "id" ] . "] START" . PHP_EOL;
+				
+				$logFileName = str_replace( "{subscriptionFK}", $row[ "id" ], $this->_config[ "logDir" ] . '/' . $nextDay . '/' . $this->_config[ "logFileNamePattern" ] );
+
+				$success = array();
+				$fail = array();
+				$successCount = 0;
+				$failCount = 0;
+
+				exec( 'grep "Push success" ' . $logFileName . ' 2>/dev/null | cut -f2 | sort | uniq -c', $success );
+				exec( 'grep "PushFailed" ' . $logFileName . ' 2>/dev/null | cut -f2 | sort | uniq -c', $fail );
+
+				if( isset( $success[0] ) )
+				{
+					$stringParts = explode( " ", trim( $success[0] ) );
+					$successCount = intval( array_shift( $stringParts ) );
+				}
+
+				if( isset( $fail[0] ) )
+				{
+					$stringParts = explode( " ", trim( $fail[0] ) );
+					$failCount = intval( array_shift( $stringParts ) );
+				}
+
+				if( !isset( $this->_dailyData[ $nextDay ][ $row[ "value" ] ][ "success" ] ) )
+				{
+					$this->_dailyData[ $nextDay ][ $row[ "value" ] ][ "success" ] = 0;
+				}
+
+				$this->_dailyData[ $nextDay ][ $row[ "value" ] ][ "success" ]	+= $successCount;
+
+				if( !isset( $this->_dailyData[ $nextDay ][ $row[ "value" ] ][ "fail" ] ) )
+				{
+					$this->_dailyData[ $nextDay ][ $row[ "value" ] ][ "fail" ] = 0;
+				}			
+
+				$this->_dailyData[ $nextDay ][ $row[ "value" ] ][ "fail" ]	+= $failCount;
+
+				if( $this->_debug ) echo PHP_EOL . "\tParsing subscription [" . $row[ "id" ] . "] END" . PHP_EOL;
 			}
 
-			if( isset( $fail[0] ) )
-			{
-				$stringParts = explode( " ", trim( $fail[0] ) );
-				$failCount = intval( array_shift( $stringParts ) );
-			}
+			
+			if( $this->_debug ) echo PHP_EOL . "Parsing date [" . $nextDay . "] END" . PHP_EOL;
 
-			if( !isset( $this->_dailyData[ $row[ "value" ] ][ "success" ] ) )
-			{
-				$this->_dailyData[ $row[ "value" ] ][ "success" ] = 0;
-			}
-
-			$this->_dailyData[ $row[ "value" ] ][ "success" ]	+= $successCount;
-
-			if( !isset( $this->_dailyData[ $row[ "value" ] ][ "fail" ] ) )
-			{
-				$this->_dailyData[ $row[ "value" ] ][ "fail" ] = 0;
-			}			
-
-			$this->_dailyData[ $row[ "value" ] ][ "fail" ]	+= $failCount;
+			$nextDay = date( "Y-m-d", strtotime( $nextDay . " +1 day " ) );
 		}
 
 		$this->_saveAggregate();
-		if( $this->_debug ) echo PHP_EOL . " parse end" . PHP_EOL;
+
 	}
 
 	public function setDb( $dbObject )
@@ -147,9 +164,19 @@ class PerformanceReporter {
 		$this->_config = $configArray;
 
 		// validate/parse the log date
-		if( isset( $this->_config[ "logDate" ] ) )
+		if( isset( $this->_config[ "logDateFrom" ] ) )
 		{
-			$this->_config[ "logDate" ] = date( 'Y-m-d', strtotime( $this->_config[ "logDate" ] ) );
+			$this->_config[ "logDateFrom" ] = date( 'Y-m-d', strtotime( $this->_config[ "logDateFrom" ] ) );
+		}
+
+		if( isset( $this->_config[ "logDateTo" ] ) )
+		{
+			$this->_config[ "logDateTo" ] = date( 'Y-m-d', strtotime( $this->_config[ "logDateTo" ] ) );
+		}
+
+		if( isset( $this->_config[ "debugMode" ] ) )
+		{
+			$this->_debug = $this->_config[ "debugMode" ];
 		}
 	}
 
@@ -239,9 +266,9 @@ class PerformanceReporter {
 		$this->_groupData = $dbResult[0];
 	}
 
-	protected function _loadAggregate()
+	protected function _loadAggregate( $date )
 	{
-		$fh = $this->_getAggregateFileHandle( "r" );
+		$fh = $this->_getAggregateFileHandle( "r", $date );
 
 		$fileSize = filesize( $this->_config[ "actualAggregateFileName" ] );
 
@@ -274,21 +301,21 @@ class PerformanceReporter {
 			throw new Exception( "There is nothing to save to the aggregate file!" );
 		}
 
-		if( date( "Y-m", strtotime( $this->_config[ "logDate" ] ) ) === $this->_year . "-" . $this->_month )
-		{
-			$this->_loadAggregate();
+		foreach ($this->_dailyData as $dailyDate => $dailyInfo )
+		{			
+			$this->_loadAggregate( $dailyDate );
 
 			if( !isset( $this->_aggregatedData[ $this->_groupFK ] ) )
 			{
 				$this->_aggregatedData[ $this->_groupFK ] = array();
 			}
+		
+			$fh = $this->_getAggregateFileHandle( "w", $dailyDate );
 
-			foreach ( $this->_dailyData as $url => $dailyDataRow )
-			{
-				$this->_aggregatedData[ $this->_groupFK ][ $url ][ $this->_config[ "logDate" ] ] = $dailyDataRow;
+			foreach( $dailyInfo as $url => $dailyDataRow )
+			{					
+				$this->_aggregatedData[ $this->_groupFK ][ $url ][ $dailyDate ] = $dailyDataRow;
 			}
-
-			$fh = $this->_getAggregateFileHandle( "w" );
 
 			if( !fwrite($fh, json_encode( $this->_aggregatedData ) ) )
 			{
@@ -301,7 +328,7 @@ class PerformanceReporter {
 
 	}
 
-	protected function _getAggregateFileHandle( $mode )
+	protected function _getAggregateFileHandle( $mode, $date=null )
 	{
 		if( !is_string( $mode ) )
 		{
@@ -318,7 +345,19 @@ class PerformanceReporter {
 			throw new Exception( "Aggregate file name absent from configuration!" );
 		}
 
-		$this->_config[ "actualAggregateFileName" ] = str_replace( array( "{month}", "{year}" ), array( $this->_month, $this->_year ), $this->_config[ "aggregateFileNamePattern" ] );
+		if( is_null( $date ) )
+		{
+			$month = $this->_month;
+			$year = $this->_year;
+		}
+		else
+		{
+			$month = date( "m", strtotime( $date ) );
+			$year = date( "Y", strtotime( $date ) );
+		}
+
+		$this->_config[ "actualAggregateFileName" ] = str_replace( array( "{month}", "{year}" ), array( $month, $year ), $this->_config[ "aggregateFileNamePattern" ] );
+
 
 		if( !is_file( $this->_config[ "actualAggregateFileName" ] ) )
 		{
@@ -332,6 +371,8 @@ class PerformanceReporter {
 		{
 			throw new Exception( "Aggregate file is not writeable by the script process!" );
 		}
+
+		clearstatcache( true, $this->_config[ "actualAggregateFileName" ] );
 
 		$aggregateFileHandle = @fopen( $this->_config[ "actualAggregateFileName" ], $mode );
 
@@ -376,7 +417,7 @@ class PerformanceReporter {
 		$this->_report[ 'firstDay' ] = $nextDay;
 		$this->_report[ 'lastDay' ] = $lastDay;
 
-		$this->_loadAggregate();
+		$this->_loadAggregate( $nextDay );
 
 		$this->_reportResults = array();
 

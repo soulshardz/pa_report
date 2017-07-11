@@ -75,7 +75,6 @@
 		$db->open();
 
 		$reporter = new PerformanceReporter( $groupFK );
-		$reporter->setDebug( true );
 		$reporter->setDb( $db );
 		$reporter->setConfig( $config );		
 		$reporter->setMonth( $month, $year );
